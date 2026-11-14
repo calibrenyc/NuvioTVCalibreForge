@@ -1,0 +1,35 @@
+# CalibreForge Dual-Client Launch Status
+
+Updated: 2026-11-14 16:04 America/New_York
+
+## Current status
+
+| Area | Status | Evidence / remaining work |
+|---|---|---|
+| Backend source | Existing implementation found | VPS `/srv/hosting/nuvio-backend-staging`, `NuvioMedia/self-host` HEAD `30f1568`. Supabase-compatible Auth, PostgREST, Storage, Edge Functions, account dashboard, migrations, discovery, and backup/restore CLI are present. |
+| Backend deployment | Healthy; public signup re-enabled | The signup-disabling `compose.calibre-signup-guard.yml` overlay had been added to `COMPOSE_FILE`, overriding `.env`. Backed up the env file, removed only that overlay, preserved the REST guard and Mailpit overlay, and set `DISABLE_SIGNUP=false`. The resolved Compose value and live Auth container both report signup enabled; `smoke-signup.sh` passed afterward. Email provider and auto-confirm remain enabled. An orphan Mailpit container was reported and intentionally left untouched. |
+| API hostname | Operational | `api.calibreforge.dev` resolves to `104.166.88.31`. Caddy was deduplicated, validated, backed up, updated, and reloaded. Fresh HTTPS probe at 15:35 ET returned 200 from both `/.well-known/nuvio` and the NuvioWeb root. Discovery reports `self_hosted=true`, backend URL `https://api.calibreforge.dev`, email/password auth, and TV login. API paths route to Kong; root paths route to the account dashboard. |
+| Suspension/session enforcement | Live suspend/revoke/reactivate test passed | PostgREST pre-request hook is `public.calibre_rest_suspension_guard()` and remains live after the DB restart and signup-config redeploy. The hook checks JWT `session_id` against `auth.sessions` and rejects suspended accounts; Storage applies the same check. Edge helper checks existence/suspension. `smoke-security.sh` passed the public RPC allowlist/private-helper checks. For disposable Account B, an Auth ban alone did not stop its existing session; after setting `account_status.suspended=true` and revoking one session, NuvioWeb failed at auth startup. After clearing the ban and app-level marker, a fresh browser session signed in successfully; the old cached session was stale. |
+| User isolation | Live two-account browser test passed | RLS is enabled on 15 public data tables checked. Policies for collections, library items, profile-settings blobs, watch progress, and watched items compare `user_id` to `auth.uid()`. `can_access_user_data(p_user_id)` returns true only when `auth.uid()` matches; `get_sync_owner()` rejects unauthenticated requests and returns only the authenticated subject. Admin tables have policies limited to `calibre_admin_service`. User created Account B in a private browser and confirmed Account A's custom profile/library data was hidden; B was deleted after acceptance testing. |
+| NuvioWeb | Site, registration, and cross-client sync verified | `https://nuvio.calibreforge.dev/` returns HTTP 200. Runtime config uses CalibreForge API, a present public key, no official fallback, and correct avatar base URL. Added browser signup in local source branch `codex/calibreforge-web-signup`, commit `502de13`, with password validation, Terms/Privacy consent, and Supabase Auth signup. Image `calibreforge/nuvioweb:signup-20261114` runs; full-source suite: 1,894/1,894 passed. User reports creating an account, signing in, and launching the site. Signup temporarily regressed because a Compose guard overlay disabled new registrations; the overlay has now been removed and the disposable signup smoke test passes again. `smoke-workflows.sh` passed device registration, profile/dashboard/settings/collection/library/watch/media-server sync, account export/deletion, TV login exchange, and tracker login. |
+| NuvioWeb contract | Supabase-compatible | Auth routes and PostgREST RPC syncs include profiles/settings, library, progress, watched state, addons/plugins, collections, and provider credentials. |
+| Android TV fork | Physical TV sign-in and cross-client sync verified | Branch `feature/calibreforge-integration`, commit `7f410799`. [GitHub Actions run #43625828446](https://github.com/calibrenyc/NuvioTVCalibreForge/actions/runs/43625828446) produced a `fullDebug` APK at `C:\Users\Rudy\AppData\Local\Temp\CalibreForge-APK-run-43625828446\app-full-universal-debug.apk`. SHA-256: `180B7BD8395BABD57A4DE805EA53690D0C1BF500ECAA576BC198505E8E91B0EB`. User installed it on a physical TV, configured `https://api.calibreforge.dev`, signed into Account A, and confirmed theme/settings changes synchronized both ways between TV and NuvioWeb. |
+| Account administration | Private Studio reachable; suspend, revoke, and reactivate verified | `calibre_admin.account_summaries(NULL)` lists up to 500 accounts; `calibre_admin.revoke_sessions(account_id)` removes sessions. Grants deny anon/authenticated/service_role. Studio and pg-meta run on the internal Docker network; Caddy does not route Studio publicly. User accessed Studio, but its SQL editor was set to role `authenticated`, which correctly denied `calibre_admin`; the operation was run through `psql` as `supabase_admin`. Table schema: `account_id uuid`, `suspended boolean default false`, `updated_at timestamptz default now()`. Suspension plus session revocation blocked Account B; after unban and status-row removal, fresh sign-in succeeded. The disposable B account was then deleted. Steps are in [CALIBREFORGE_ADMIN_RUNBOOK.md](CALIBREFORGE_ADMIN_RUNBOOK.md). |
+| Backups/recovery | Verified | Fresh backup `/srv/hosting/nuvio-backend-staging/backups/nuvio-20261114T200423Z-1c6915` was restored successfully into isolated project `calibre_nuvio_restore_test`. The restore command also created safety backup `/srv/hosting/nuvio-backend-restore-test/backups/nuvio-20261114T200805Z-56dbbd`. Staging and restore-test DB/Storage volumes are distinct. Staging DB restart check passed: healthy afterward; aggregate profile count was 21 before and after. |
+
+## Remaining launch acceptance
+
+No pending P0 acceptance checks reported. Web and physical TV login, bidirectional theme/settings sync, Account B isolation, suspension/session revocation/reactivation, DB restart persistence, HTTPS, and backup restore were verified.
+
+## Security notes
+
+The DB-only account summary/revoke functions are `SECURITY DEFINER` and contain no internal caller-role check, so keep them private and invoke only from a trusted DB administrator session. Supabase documents that revoked access-token JWTs can remain valid until expiry; the installed request-time database guard closes that gap for requests subject to the PostgREST/Storage checks. See [Supabase user management](https://supabase.com/docs/guides/auth/managing-user-data?language=js&queryGroups=language) and [session revocation](https://supabase.com/docs/guides/auth/signout).
+
+Never expose service-role, database, dashboard, or SMTP credentials in the web/TV apps or in launch logs.
+
+
+
+
+
+
+
