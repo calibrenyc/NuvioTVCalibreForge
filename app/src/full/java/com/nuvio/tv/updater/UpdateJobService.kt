@@ -6,7 +6,6 @@ import android.app.job.JobScheduler
 import android.app.job.JobService
 import android.content.ComponentName
 import android.content.Context
-import android.os.Build
 import android.util.Log
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.core.util.hasPendingJob
@@ -30,9 +29,8 @@ private const val JOB_ID_CHECK_NOW = 10_022
 private const val CHECK_INTERVAL_MS = 12 * 60 * 60_000L
 
 /**
- * Background update work. The periodic job checks for a new release and downloads it, so the banner can offer an
- * install without waiting for the download. On Android 12+, with automatic installs enabled, a second job installs the
- * downloaded update while the device is idle, without a confirmation screen.
+ * Background update work. The periodic job checks for a stable release and downloads it, so the update dialog can
+ * open the APK immediately when the user chooses to install. All installations are confirmed in Android's installer.
  *
  * Dependencies are obtained via Hilt EntryPoint since JobService is not a supported Hilt injection target.
  */
@@ -58,7 +56,7 @@ class UpdateJobService : JobService() {
             try {
                 when (params.jobId) {
                     JOB_ID_CHECK, JOB_ID_CHECK_NOW -> checkAndDownload(entryPoint)
-                    JOB_ID_INSTALL -> installDownloaded(entryPoint)
+                    JOB_ID_INSTALL -> cancelIdleInstall(applicationContext)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -81,37 +79,21 @@ class UpdateJobService : JobService() {
 
     private suspend fun checkAndDownload(entryPoint: UpdateJobEntryPoint) {
         val preferences = entryPoint.updatePreferences()
-        val autoInstallEnabled = preferences.autoInstallEnabled.first()
-        if (!preferences.updateBannerEnabled.first() && !autoInstallEnabled) return
+        if (!preferences.updateBannerEnabled.first()) return
 
         val downloadStore = entryPoint.updateDownloadStore()
         downloadStore.clearIfInstalled()
-        val channel = preferences.getOrInitializeUpdateChannel()
-        val update = entryPoint.updateRepository().getLatestUpdate(channel).getOrThrow()
+        val update = entryPoint.updateRepository().getLatestUpdate().getOrThrow()
         preferences.setLastCheckAtMs(System.currentTimeMillis())
-        if (!VersionUtils.isRemoteNewer(update.tag, BuildConfig.VERSION_NAME)) return
+        if (!UpdateVersionPolicy.isRemoteVersionCodeNewer(update.versionCode, BuildConfig.VERSION_CODE.toLong())) return
         if (update.tag == preferences.ignoredTag.first()) return
 
         downloadStore.download(update).getOrThrow()
         Log.d(TAG, "Downloaded ${update.tag} in the background")
-        if (autoInstallEnabled) scheduleIdleInstall(applicationContext)
-    }
-
-    private suspend fun installDownloaded(entryPoint: UpdateJobEntryPoint) {
-        val preferences = entryPoint.updatePreferences()
-        if (!canInstallSilently(applicationContext) || !preferences.autoInstallEnabled.first()) return
-        val (tag, apkFile) = entryPoint.updateDownloadStore().pendingInstall() ?: return
-        if (tag == preferences.ignoredTag.first()) return
-        Log.d(TAG, "Installing $tag while the device is idle")
-        preferences.setAutoInstalledTag(tag)
-        ApkInstaller.install(applicationContext, apkFile, background = true)
+        cancelIdleInstall(applicationContext)
     }
 
     companion object {
-        /** Silent self-updates need Android 12+ and the "install unknown apps" permission. */
-        fun canInstallSilently(context: Context): Boolean =
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ApkInstaller.canRequestPackageInstalls(context)
-
         fun schedulePeriodicCheck(context: Context) {
             val scheduler = context.jobScheduler()
             if (scheduler.hasPendingJob(JOB_ID_CHECK)) return
@@ -133,15 +115,6 @@ class UpdateJobService : JobService() {
 
         fun cancelPeriodicCheck(context: Context) {
             context.jobScheduler().cancel(JOB_ID_CHECK)
-        }
-
-        fun scheduleIdleInstall(context: Context) {
-            if (!canInstallSilently(context)) return
-            val job = JobInfo.Builder(JOB_ID_INSTALL, ComponentName(context, UpdateJobService::class.java))
-                .setRequiresDeviceIdle(true)
-                .setPersisted(true)
-                .build()
-            context.jobScheduler().scheduleSafely(job)
         }
 
         fun cancelIdleInstall(context: Context) {

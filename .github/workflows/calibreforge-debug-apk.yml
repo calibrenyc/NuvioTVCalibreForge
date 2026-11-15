@@ -58,7 +58,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Build fullDebug APK
-        run: ./gradlew :app:assembleFullDebug --stacktrace
+        run: ./gradlew :app:testFullReleaseUnitTest --tests 'com.nuvio.tv.updater.*' :app:assembleFullDebug --stacktrace
 
       - name: Upload universal debug APK
         uses: actions/upload-artifact@v7

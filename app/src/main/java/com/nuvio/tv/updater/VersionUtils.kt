@@ -76,3 +76,8 @@ internal object VersionUtils {
         return remoteVersion > localVersion
     }
 }
+
+internal object UpdateVersionPolicy {
+    fun isRemoteVersionCodeNewer(remoteVersionCode: Long, installedVersionCode: Long): Boolean =
+        remoteVersionCode > installedVersionCode
+}

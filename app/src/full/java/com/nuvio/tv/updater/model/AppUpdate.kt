@@ -7,5 +7,7 @@ data class AppUpdate(
     val releaseUrl: String?,
     val assetName: String,
     val assetUrl: String,
-    val assetSizeBytes: Long?
+    val assetSizeBytes: Long?,
+    val versionCode: Long = 0L,
+    val sha256: String = ""
 )

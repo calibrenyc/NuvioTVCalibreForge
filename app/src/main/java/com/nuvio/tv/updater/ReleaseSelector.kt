@@ -14,6 +14,7 @@ internal object ReleaseSelector {
     ): List<GitHubReleaseDto> = releases
         .asSequence()
         .filterNot(GitHubReleaseDto::draft)
+        .filter { !it.publishedAt.isNullOrBlank() }
         .mapNotNull { release ->
             val version = releaseVersion(release) ?: return@mapNotNull null
             ReleaseCandidate(

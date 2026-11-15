@@ -13,7 +13,13 @@ internal object AbiSelector {
     )
 
     fun chooseBestApkAsset(assets: List<GitHubAssetDto>): GitHubAssetDto? {
-        val apkAssets = assets.filter { it.name.endsWith(".apk", ignoreCase = true) }
+        // Releases may contain source packages, Play builds, debug APKs, or other flavors.
+        // The updater only accepts signed fullRelease APKs published by our release workflow.
+        val apkAssets = assets.filter { asset ->
+            asset.name.matches(
+                Regex("app-full-(?:universal|arm64-v8a|armeabi-v7a|x86_64|x86)-release\\.apk", RegexOption.IGNORE_CASE)
+            ) && asset.digest?.matches(Regex("sha256:[0-9a-f]{64}", RegexOption.IGNORE_CASE)) == true
+        }
         if (apkAssets.isEmpty()) return null
         if (apkAssets.size == 1) return apkAssets.first()
 

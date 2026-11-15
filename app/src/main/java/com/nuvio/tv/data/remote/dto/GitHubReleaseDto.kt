@@ -10,6 +10,7 @@ data class GitHubReleaseDto(
     val body: String? = null,
     val draft: Boolean = false,
     val prerelease: Boolean = false,
+    @Json(name = "published_at") val publishedAt: String? = null,
     @Json(name = "html_url") val htmlUrl: String? = null,
     val assets: List<GitHubAssetDto> = emptyList()
 )
@@ -19,5 +20,7 @@ data class GitHubAssetDto(
     val name: String,
     @Json(name = "browser_download_url") val browserDownloadUrl: String,
     val size: Long? = null,
-    @Json(name = "content_type") val contentType: String? = null
+    @Json(name = "content_type") val contentType: String? = null,
+    /** GitHub's server-computed digest, for example `sha256:...`. */
+    val digest: String? = null
 )

@@ -60,6 +60,16 @@ class ReleaseSelectorTest {
         assertEquals(listOf("1.1.0"), selected.map { it.tagName })
     }
 
+    @Test
+    fun `unpublished releases are excluded`() {
+        val selected = ReleaseSelector.eligibleReleases(
+            listOf(release("1.3.0").copy(publishedAt = null)),
+            UpdateChannel.STABLE
+        )
+
+        assertEquals(emptyList<String>(), selected.mapNotNull { it.tagName })
+    }
+
     private fun release(
         tag: String,
         name: String = tag,
@@ -69,6 +79,7 @@ class ReleaseSelectorTest {
         tagName = tag,
         name = name,
         draft = draft,
-        prerelease = prerelease
+        prerelease = prerelease,
+        publishedAt = "2026-11-15T00:00:00Z"
     )
 }

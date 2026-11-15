@@ -60,6 +60,7 @@ class UpdateViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(UpdateUiState())
     val uiState: StateFlow<UpdateUiState> = _uiState.asStateFlow()
     private var updateCheckJob: Job? = null
+    private var installAfterDownload = false
 
     init {
         viewModelScope.launch {
@@ -72,12 +73,14 @@ class UpdateViewModel @Inject constructor(
                 it.copy(
                     updateBannerEnabled = enabled,
                     updateChannel = channel,
-                    autoInstallEnabled = autoInstallEnabled,
+                    autoInstallEnabled = false,
                     autoInstallNoticeEnabled = autoInstallNoticeEnabled,
                     optimizeDuringInstall = optimizeDuringInstall
                 )
             }
             downloadStore.clearIfInstalled()
+            // CalibreForge updates always require an explicit confirmation in Android's package installer.
+            if (autoInstallEnabled) updatePreferences.setAutoInstallEnabled(false)
             consumeAutoInstalledUpdate()
             syncBackgroundJobs()
             if (enabled && !BuildConfig.IS_DEBUG_BUILD) {
@@ -103,12 +106,15 @@ class UpdateViewModel @Inject constructor(
             }
 
             val dismissedTag = updatePreferences.ignoredTag.first()
-            val result = updateRepository.getLatestUpdate(channel)
+            val result = updateRepository.getLatestUpdate()
             updatePreferences.setLastCheckAtMs(System.currentTimeMillis())
 
             result
                 .onSuccess { update ->
-                    val remoteNewer = VersionUtils.isRemoteNewer(update.tag, BuildConfig.VERSION_NAME)
+                    val remoteNewer = UpdateVersionPolicy.isRemoteVersionCodeNewer(
+                        update.versionCode,
+                        BuildConfig.VERSION_CODE.toLong()
+                    )
                     val downloadedFile = if (remoteNewer) downloadStore.downloadedFileFor(update) else null
                     // The release just installed carries the notes the "updated" banner can show.
                     val installedUpdate = _uiState.value.installedUpdate?.let { installed ->
@@ -181,6 +187,7 @@ class UpdateViewModel @Inject constructor(
         }
 
     fun dismissBanner() {
+        installAfterDownload = false
         val state = _uiState.value
         _uiState.update {
             it.copy(
@@ -256,6 +263,7 @@ class UpdateViewModel @Inject constructor(
 
     fun downloadUpdate() {
         val update = _uiState.value.update ?: return
+        installAfterDownload = true
 
         viewModelScope.launch {
             _uiState.update {
@@ -287,7 +295,10 @@ class UpdateViewModel @Inject constructor(
                             errorMessage = null
                         )
                     }
-                    installUpdateOrRequestPermission()
+                    if (installAfterDownload) {
+                        installAfterDownload = false
+                        installUpdateOrRequestPermission()
+                    }
                 }
                 .onFailure { error ->
                     _uiState.update {
@@ -322,20 +333,10 @@ class UpdateViewModel @Inject constructor(
         }
 
         _uiState.update { it.copy(showUnknownSourcesDialog = false) }
-        // Without dex metadata a session install gains nothing over the system installer, whose screen stays up
-        // while the app is closed for the install and offers to open it again.
-        val useSystemInstaller = !ApkInstaller.supportsDexMetadata || !_uiState.value.optimizeDuringInstall
         viewModelScope.launch(Dispatchers.IO) {
-            if (useSystemInstaller) {
-                runCatching { ApkInstaller.launchSystemInstaller(context, apkFile) }
-                    .onFailure { error -> Log.w(TAG, "System installer failed", error) }
-                return@launch
-            }
-            runCatching { ApkInstaller.install(context, apkFile, background = false) }
+            runCatching { ApkInstaller.launchSystemInstaller(context, apkFile) }
                 .onFailure {
-                    Log.w(TAG, "Session install failed, falling back to the system installer", it)
-                    runCatching { ApkInstaller.launchSystemInstaller(context, apkFile) }
-                        .onFailure { error -> Log.w(TAG, "System installer failed", error) }
+                    Log.w(TAG, "System installer failed", it)
                 }
         }
     }
@@ -371,13 +372,10 @@ class UpdateViewModel @Inject constructor(
     }
 
     fun setAutoInstallEnabled(enabled: Boolean) {
-        _uiState.update { it.copy(autoInstallEnabled = enabled) }
+        _uiState.update { it.copy(autoInstallEnabled = false) }
         viewModelScope.launch {
-            updatePreferences.setAutoInstallEnabled(enabled)
+            updatePreferences.setAutoInstallEnabled(false)
             syncBackgroundJobs()
-            if (enabled && downloadStore.pendingInstall() != null) {
-                UpdateJobService.scheduleIdleInstall(context)
-            }
         }
     }
 
@@ -390,7 +388,7 @@ class UpdateViewModel @Inject constructor(
         } else {
             UpdateJobService.cancelPeriodicCheck(context)
         }
-        if (!state.autoInstallEnabled) UpdateJobService.cancelIdleInstall(context)
+        UpdateJobService.cancelIdleInstall(context)
     }
 
     fun openUnknownSourcesSettings() {

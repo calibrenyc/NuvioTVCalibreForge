@@ -63,7 +63,8 @@ fun UpdateBannerHost(
 
     // A newer release takes the banner; otherwise it can report the release that was just installed automatically.
     val update = state.update ?: state.installedUpdate
-    val showBanner = state.showBanner && update != null
+    val showUpdateDialog = state.showBanner && state.update != null && !state.showUnknownSourcesDialog
+    val showBanner = state.showBanner && update != null && state.update == null
 
     Column(modifier = Modifier.fillMaxSize()) {
         AnimatedVisibility(
@@ -105,6 +106,17 @@ fun UpdateBannerHost(
             update = update,
             onDismiss = { showReleaseNotes = false }
         )
+    }
+
+    if (showUpdateDialog) {
+        state.update?.let { availableUpdate ->
+            UpdateAvailableDialog(
+                state = state,
+                update = availableUpdate,
+                onUpdateNow = if (state.downloadedApkPath != null) onInstall else onDownload,
+                onLater = onDismissBanner
+            )
+        }
     }
 
     if (state.showUnknownSourcesDialog) {

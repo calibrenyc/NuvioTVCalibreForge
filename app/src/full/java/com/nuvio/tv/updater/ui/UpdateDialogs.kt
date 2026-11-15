@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +38,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import android.text.format.Formatter
+import androidx.compose.ui.platform.LocalContext
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
@@ -50,7 +52,112 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.updater.model.AppUpdate
+import com.nuvio.tv.updater.UpdateUiState
 import kotlinx.coroutines.launch
+
+@Composable
+internal fun UpdateAvailableDialog(
+    state: UpdateUiState,
+    update: AppUpdate,
+    onUpdateNow: () -> Unit,
+    onLater: () -> Unit
+) {
+    val context = LocalContext.current
+    val version = update.tag
+    val size = update.assetSizeBytes?.let { Formatter.formatShortFileSize(context, it) }
+    val progress = state.downloadProgress
+    val updateButtonFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(update.tag) {
+        updateButtonFocusRequester.requestFocusAfterFrames()
+    }
+    NuvioDialog(
+        onDismiss = onLater,
+        title = stringResource(R.string.update_title),
+        subtitle = listOfNotNull(version, size).joinToString(" • "),
+        width = 680.dp,
+        suppressFirstKeyUp = false
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 280.dp)
+                .verticalScroll(rememberScrollState())
+                .background(NuvioTheme.colors.BackgroundCard, RoundedCornerShape(NuvioTheme.radii.md))
+                .padding(NuvioTheme.spacing.md)
+        ) {
+            Markdown(
+                content = update.notes.ifBlank { stringResource(R.string.update_no_release_notes) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = markdownColor(text = NuvioTheme.colors.TextSecondary),
+                typography = markdownTypography(
+                    paragraph = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                    h1 = MaterialTheme.typography.titleLarge.copy(color = NuvioTheme.colors.TextPrimary),
+                    h2 = MaterialTheme.typography.titleMedium.copy(color = NuvioTheme.colors.TextPrimary),
+                    h3 = MaterialTheme.typography.bodyLarge.copy(color = NuvioTheme.colors.TextPrimary)
+                )
+            )
+        }
+
+        if (state.isDownloading) {
+            Text(
+                text = progress?.let { stringResource(R.string.update_downloading_progress, (it * 100).toInt()) }
+                    ?: stringResource(R.string.update_preparing_download),
+                color = NuvioTheme.colors.TextSecondary
+            )
+            progress?.let {
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = { it.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = NuvioTheme.colors.Secondary,
+                    trackColor = NuvioTheme.colors.BackgroundCard
+                )
+            } ?: androidx.compose.material3.LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth(),
+                color = NuvioTheme.colors.Secondary,
+                trackColor = NuvioTheme.colors.BackgroundCard
+            )
+        }
+        state.errorMessage?.let { Text(it, color = NuvioTheme.colors.Error) }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+        ) {
+            Button(
+                onClick = onUpdateNow,
+                modifier = Modifier.focusRequester(updateButtonFocusRequester),
+                enabled = !state.isDownloading,
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.Secondary,
+                    focusedContainerColor = NuvioTheme.colors.SecondaryVariant,
+                    contentColor = NuvioTheme.colors.OnSecondary,
+                    focusedContentColor = NuvioTheme.colors.OnSecondaryVariant
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50))
+            ) {
+                Text(
+                    when {
+                        state.isDownloading -> stringResource(R.string.update_downloading_ellipsis)
+                        state.downloadedApkPath != null -> stringResource(R.string.update_install_now)
+                        else -> stringResource(R.string.update_now)
+                    }
+                )
+            }
+            Button(
+                onClick = onLater,
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    focusedContainerColor = NuvioTheme.colors.FocusBackground,
+                    contentColor = NuvioTheme.colors.TextPrimary,
+                    focusedContentColor = NuvioTheme.colors.Primary
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50))
+            ) {
+                Text(stringResource(R.string.update_later))
+            }
+        }
+    }
+}
 
 @Composable
 internal fun UpdateReleaseNotesDialog(

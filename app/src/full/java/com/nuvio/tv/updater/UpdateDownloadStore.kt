@@ -53,13 +53,31 @@ class UpdateDownloadStore @Inject constructor(
         update: AppUpdate,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit = { _, _ -> }
     ): Result<File> = downloadMutex.withLock {
-        downloadedFileFor(update)?.let { return@withLock Result.success(it) }
-        val destination = destinationFor(update)
-        apkDownloader.download(update.assetUrl, destination, onProgress)
-            .onSuccess { file ->
-                updatesDir.listFiles()?.filter { it != file }?.forEach { it.delete() }
-                updatePreferences.setDownloadedUpdate(update.tag, file.absolutePath)
+        downloadedFileFor(update)?.let { cached ->
+            val valid = runCatching {
+                ApkIntegrityVerifier.verify(context, cached, expectedVersionCode = update.versionCode)
+                cached
             }
+            if (valid.isSuccess) return@withLock valid
+            cached.delete()
+            updatePreferences.setDownloadedUpdate(null, null)
+        }
+        val destination = destinationFor(update)
+        apkDownloader.download(
+            url = update.assetUrl,
+            destinationFile = destination,
+            expectedSha256 = update.sha256,
+            expectedSizeBytes = update.assetSizeBytes,
+            onProgress = onProgress
+        ).mapCatching { file ->
+            ApkIntegrityVerifier.verify(context, file, expectedVersionCode = update.versionCode)
+            updatesDir.listFiles()?.filter { it != file }?.forEach { it.delete() }
+            updatePreferences.setDownloadedUpdate(update.tag, file.absolutePath)
+            file
+        }.onFailure {
+            destination.delete()
+            updatePreferences.setDownloadedUpdate(null, null)
+        }
     }
 
     /** Drops the downloaded APK once it is installed, outdated, or no longer wanted. */
