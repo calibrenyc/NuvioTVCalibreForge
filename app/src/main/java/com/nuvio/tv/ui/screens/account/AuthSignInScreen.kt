@@ -27,11 +27,13 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.BuildConfig
 
 @Composable
 fun AuthSignInScreen(
     onBackPress: () -> Unit = {},
     onNavigateToQrSignIn: () -> Unit = {},
+    onNavigateToLegacyMigration: () -> Unit = {},
     onSuccess: () -> Unit = {}
 ) {
     BackHandler { onBackPress() }
@@ -80,6 +82,40 @@ fun AuthSignInScreen(
                     modifier = Modifier.padding(vertical = NuvioTheme.spacing.xs),
                     fontWeight = FontWeight.Medium
                 )
+            }
+            if (BuildConfig.DEBUG) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    onClick = onNavigateToLegacyMigration,
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.Secondary,
+                        focusedContainerColor = NuvioTheme.colors.SecondaryVariant,
+                        contentColor = NuvioTheme.colors.OnSecondary,
+                        focusedContentColor = NuvioTheme.colors.OnSecondaryVariant
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(50)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Sync existing Nuvio account",
+                        modifier = Modifier.padding(vertical = NuvioTheme.spacing.xs),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(
+                onClick = onNavigateToQrSignIn,
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundElevated,
+                    focusedContainerColor = NuvioTheme.colors.SecondaryVariant,
+                    contentColor = NuvioTheme.colors.TextPrimary,
+                    focusedContentColor = NuvioTheme.colors.OnSecondaryVariant
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(50)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Create account", modifier = Modifier.padding(vertical = NuvioTheme.spacing.xs))
             }
         }
     }
